@@ -5,14 +5,14 @@ import cats.implicits._
 import org.apache.spark.sql.SparkSession
 
 
-case class EtlResult(value: Array[Result], session: SparkSession)
+case class EtlResult(value: Array[ResultingSet], session: SparkSession)
 
 object Main extends App {
 
   //todo as test example output as println to command line
-  program[IO].unsafeRunSync().map(Result.unapply(_).get) foreach println
+  program[IO].unsafeRunSync().map(ResultingSet.unapply(_).get) foreach println
 
-  def program[F[_]](implicit E: Effect[F]): F[Array[Result]] =
+  def program[F[_]](implicit E: Effect[F]): F[Array[ResultingSet]] =
     for {
       logic <- mainLogic[F]
       _     <- Session[F].close(logic.session)
@@ -22,7 +22,7 @@ object Main extends App {
     for {
       configuration <- config.load[F]
       session       <- new Session[F].createFromConfig(configuration.spark)
-      resultETL     <- new ProcessData[F](configuration.csv, session).etl
+      resultETL     <- new ProcessData[F](configuration.csv, session).etl1
     } yield EtlResult(resultETL.process(), session)
   }
 }

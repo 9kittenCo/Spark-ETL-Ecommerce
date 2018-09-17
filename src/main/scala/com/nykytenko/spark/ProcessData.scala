@@ -8,31 +8,57 @@ import com.nykytenko.spark.config.CsvConfig
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
 
-case class DataWithSession(sessionId:String, sessionTime: Timestamp)
 
-case class Result(
-                   sessionId: String,
-                   sessionStartTime: Timestamp,
-                   sessionEndTime: Timestamp
-                 )
+case class DataWithSession(sessionId: String,
+                           product: String,
+                           userId: String,
+ //                          sessionId: String,
+                           sessionTime: Timestamp,
+                           eventType: String
+                          )
+
+//case class ResultingSet(
+//                   window: Window5Min,
+//                   sessionId: String,
+//                   sessionStartTime: Timestamp,
+//                   sessionEndTime: Timestamp,
+//                   wrappedColumns: Seq[WrappedColumns]
+//                 )
+case class ResultingSet(
+                         sessionStartTime: Timestamp,
+                         sessionId: String,
+                         window: Window5Min,
+                         eventTime: Array[String],
+                         eventType: String,
+                         sessionEndTime: Timestamp,
+                         userId: String
+                       )
+case class Window5Min(start: Timestamp, end: Timestamp)
+
+case class WrappedColumns(
+                           userId: String,
+                           eventType: String,
+                           sessionTime: Timestamp
+                         )
 
 case class EtlDescription(
                           sourceDF: DataFrame,
-                          transform: DataFrame => Dataset[Result],
-                          write: Dataset[Result] => Array[Result],
+                          transform: DataFrame => Dataset[ResultingSet],
+                          write: Dataset[ResultingSet] => Array[ResultingSet],
                           metadata: scala.collection.mutable.Map[String, Any] = scala.collection.mutable.Map[String, Any]()
                         ) {
 
-  def process(): Array[Result] = {
+  def process(): Array[ResultingSet] = {
     write(sourceDF.transform(transform))
   }
-
 }
 
 class ProcessData[F[_]](config: CsvConfig, sparkSession: SparkSession)(implicit E: Effect[F]) {
 
+  private val toDate = Functions.toDate("yyyy-MM-dd H:m:s")
+//  val toWrappedColumns = udf((arrayCol:Array[(String, String, Timestamp)]) => WrappedColumns(arrayCol.))
 
-  val etl: F[EtlDescription] = E.delay {
+  val etl1: F[EtlDescription] = E.delay {
     EtlDescription(
       sourceDF = extractDF(config),
       transform = model(),
@@ -50,62 +76,57 @@ class ProcessData[F[_]](config: CsvConfig, sparkSession: SparkSession)(implicit 
     import sparkSession.implicits._
 
     df
-      .select("category", "eventTime")
       .filter(!_.anyNull)
+      .withColumn("eventTime", toDate(col("eventTime")))
       .withColumnRenamed("category", "sessionId")
       .withColumnRenamed("eventTime", "sessionTime")
-      .withColumn("sessionTime", $"sessionTime".cast("timestamp"))
       .as[DataWithSession]
   }
 
-  private def toResult(ds: Dataset[DataWithSession]): Dataset[Result] = {
+  private def toResult(ds: Dataset[DataWithSession]): Dataset[ResultingSet] = {
     import sparkSession.implicits._
 
     val window5min = window(col("sessionTime"), windowDuration = "5 minutes")
 
-    ds
-      .groupBy(col("sessionId"), window5min)
+    val r = ds
+        .withColumn("sessionTimeS", $"sessionTime".cast("string"))
+      .withColumn("combined", array($"userId", $"eventType", $"sessionTimeS"))//
+      .drop($"sessionTimeS")
+//            .withColumn("combined", concat_ws(", ", col("userId"),  col("eventType"), col("sessionTime")))
+      .groupBy(
+      window5min.alias("window"),
+      $"sessionId"
+    )
       .agg(
-        max(col("sessionTime")).alias("sessionEndTime"),
-        min(col("sessionTime")).alias("sessionStartTime")
-      ).orderBy("sessionId")
-      .as[Result]
+        min($"sessionTime").alias("sessionStartTime"),
+        max($"sessionTime").alias("sessionEndTime"),
+        collect_list($"combined").alias("wrappedColumns")
+      ).orderBy("sessionId", "sessionEndTime")
+
+     r
+       .withColumn("userId", $"wrappedColumns"(0))
+       .withColumn("eventType", $"wrappedColumns" (1))
+       .withColumn("eventTime", $"wrappedColumns" (2))
+ //      .withColumn("eventTime", toDate(col("eventTime")))
+       .drop($"wrappedColumns")
+       .as[ResultingSet]
   }
 
-  private def toResultWd(ds: Dataset[DataWithSession]): Dataset[Result] = {
-    import sparkSession.implicits._
-    import org.apache.spark.sql.expressions.Window
-
-    val windowSpec = Window.partitionBy("sessionId")
-      .orderBy(col("sessionTime").cast("long"))
-      .rangeBetween(-150, 150)
-
+  def calcMedianSessionDuration()(ds: Dataset[ResultingSet]) = {
     ds
-//      .groupBy("sessionId")
-//      .agg(
-//        max(col("sessionTime")).alias("sessionEndTime"),
-//        min(col("sessionTime")).alias("sessionStartTime")
-//      ).orderBy("sessionId")
-      .withColumn("sessionTime", last("sessionTime").over(windowSpec))
-      .withColumn("sessionStartTime", $"sessionTime".cast("timestamp"))
-      .withColumn("sessionEndTime", $"sessionTime".cast("timestamp"))
-      .orderBy("sessionId", "sessionStartTime", "sessionEndTime")
-      .as[Result]
+      .withColumn("sessionDuration", col("sessionEndTime") - col("sessionStartTime"))
+      .stat.approxQuantile("sessionDuration", Array(0.5), 0.25)
   }
-
-  def calcMedianSessionDuration() = ???
 
   def findUsersPerCategory() = ???
 
   def top10ProductsByCategory() = ???
 
-  private def model()(df: DataFrame): Dataset[Result] = {
+  private def model()(df: DataFrame): Dataset[ResultingSet] = {
     df
       .transform(toSessionInfo)
-//      .transform(toResult)
-      .transform(toResultWd)
-
+      .transform(toResult)
   }
 
-  private def dummyWriter()(ds: Dataset[Result]): Array[Result] = ds.collect()
+  private def dummyWriter()(ds: Dataset[ResultingSet]): Array[ResultingSet] = ds.collect()
 }
