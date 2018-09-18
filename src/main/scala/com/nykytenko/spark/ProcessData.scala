@@ -1,8 +1,5 @@
 package com.nykytenko.spark
 
-
-import java.sql.Timestamp
-
 import cats.effect.Effect
 import com.nykytenko.config.CsvConfig
 import org.apache.spark.sql.{DataFrame, _}

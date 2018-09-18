@@ -1,6 +1,5 @@
 package com.nykytenko
 
-import cats.data.Ior
 import cats.effect.{Effect, IO}
 import cats.implicits._
 import com.nykytenko.spark.{EtlDescription, ProcessData, Session}
