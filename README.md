@@ -56,6 +56,6 @@ java -jar target/scala-2.11/Example-Spark-ETL-for-ecommerce-2.11.12-0.0.1-SNAPSH
 For Task #2 to get top10 products by category
 
 ```
-java -jar target/scala-2.11/Example-Spark-ETL-for-ecommerce-2.11.12-0.0.1-SNAPSHOT.jar "_2" 
+java -jar target/scala-2.11/Example-Spark-ETL-for-ecommerce-2.11.12-0.0.1-SNAPSHOT.jar "_3" 
 ```
 Parameter **_1** is default for processing
