@@ -1,10 +1,10 @@
-package com.nykytenko.spark
+package com.nykytenko
 
 import cats.effect.Effect
 import pureconfig.error.ConfigReaderException
 import cats.implicits._
 
-object config {
+package object config {
 
 
   case class SparkConfig(name: String, master: String)

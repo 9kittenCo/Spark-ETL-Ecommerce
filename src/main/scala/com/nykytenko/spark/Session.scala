@@ -1,7 +1,7 @@
 package com.nykytenko.spark
 
 import cats.effect.Effect
-import com.nykytenko.spark.config.SparkConfig
+import com.nykytenko.config.SparkConfig
 import org.apache.spark.sql.SparkSession
 
 case class Session[F[_]](implicit E: Effect[F]) {

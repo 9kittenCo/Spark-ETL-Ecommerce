@@ -1,28 +1,43 @@
-package com.nykytenko.spark
+package com.nykytenko
 
+import cats.data.Ior
 import cats.effect.{Effect, IO}
 import cats.implicits._
-import org.apache.spark.sql.SparkSession
+import com.nykytenko.spark.{EtlDescription, ProcessData, Session}
+import org.apache.spark.sql.{Row, SparkSession}
 
 
-case class EtlResult(value: Array[Result], session: SparkSession)
+object Main {
+  type Result[T] = Option[T]
+  case class EtlResult(value: EtlDescription, session: SparkSession)
 
-object Main extends App {
+  def main(args: Array[String]): Unit = {
 
-  //todo as test example output as println to command line
-  program[IO].unsafeRunSync().map(Result.unapply(_).get) foreach println
+      //todo as test example output as println to command line
+    val name = args.headOption.getOrElse("_1").toLowerCase.trim
+    program[IO](name).unsafeRunSync() foreach println
+  }
 
-  def program[F[_]](implicit E: Effect[F]): F[Array[Result]] =
+  def program[F[_]](etlName: String)(implicit E: Effect[F]): F[Array[Row]] = {
     for {
-      logic <- mainLogic[F]
-      _     <- Session[F].close(logic.session)
-    } yield logic.value
+      logic       <- mainLogic[F](etlName)
+      value       <- logic.value.process()
+//      executedETL <-  value
+      _           <- Session[F].close(logic.session)
+    } yield value
+  }
 
-  def mainLogic[F[_]](implicit E: Effect[F]): F[EtlResult] = {
+  def mainLogic[F[_]](name:String)(implicit E: Effect[F]): F[EtlResult] = {
     for {
       configuration <- config.load[F]
       session       <- new Session[F].createFromConfig(configuration.spark)
-      resultETL     <- new ProcessData[F](configuration.csv, session).etl1
-    } yield EtlResult(resultETL.process(), session)
+      processData   = new ProcessData(configuration.csv, session)
+      result = {
+        if (name == "_1") processData.Etls._1
+        else if (name == "_2") processData.Etls._2
+        else if (name == "_3") processData.Etls._3
+        else processData.Etls._1
+      }
+    } yield EtlResult(result, session)
   }
 }
