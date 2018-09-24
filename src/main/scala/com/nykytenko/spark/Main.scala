@@ -13,24 +13,23 @@ object Main {
   def main(args: Array[String]): Unit = {
 
       //todo as test example output as println to command line
-    val name = args.headOption.getOrElse("_1").toLowerCase.trim
-    program[IO](name).unsafeRunSync() foreach println
+    val name = args.headOption.getOrElse("_2").toLowerCase.trim
+    program[IO](name).unsafeRunSync()
   }
 
-  def program[F[_]](etlName: String)(implicit E: Effect[F]): F[Array[Row]] = {
+  def program[F[_]](etlName: String)(implicit E: Effect[F]): F[Unit] = {
     for {
-      logic       <- mainLogic[F](etlName)
-      value       <- logic.value.process()
-//      executedETL <-  value
-      _           <- Session[F].close(logic.session)
-    } yield value
+      logic <- mainLogic[F](etlName)
+      _     <- logic.value.process()
+      _     <- Session[F].close(logic.session)
+    } yield ()
   }
 
   def mainLogic[F[_]](name:String)(implicit E: Effect[F]): F[EtlResult] = {
     for {
       configuration <- config.load[F]
       session       <- new Session[F].createFromConfig(configuration.spark)
-      processData   = new ProcessData(configuration.csv, session)
+      processData   = new ProcessData(configuration.csv)(session)
       result = {
         if (name == "_1") processData.Etls._1
         else if (name == "_2") processData.Etls._2
