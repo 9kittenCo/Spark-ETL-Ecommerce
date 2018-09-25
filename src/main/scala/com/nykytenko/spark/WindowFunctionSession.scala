@@ -21,19 +21,22 @@ object WindowFunctionSession {
         lag('eventTime, 1)
           .over(Window.partitionBy('userId,'category).orderBy('eventTime))
           .as('prevEventTime)
-      ).orderBy('eventTime)
-      .select('userId, 'category, 'eventTime,// unix_timestamp($"eventTime") - unix_timestamp($"prevEventTime")
+      )
+      .select('userId, 'category, 'eventTime,
       when(unix_timestamp($"eventTime") - unix_timestamp($"prevEventTime") < lit(maxSessionDuration), lit(0)).otherwise(lit(1))
           .as('isNewSession))
       .select('userId, 'category, 'eventTime,
         sum('isNewSession)
-          .over(Window.partitionBy('userId).orderBy('userId, 'category, 'eventTime))
+          .over(Window.partitionBy('userId, 'category).orderBy('eventTime))
           .as('sessionId))
       .groupBy("userId", "category", "sessionId")
       .agg(
         min("eventTime").as("sessionStartTime"),
         max("eventTime").as("sessionEndTime")
-      ).orderBy('userId, 'category, 'sessionId)
+      )
+      .drop('sessionId)
+      .withColumn("sessionId", Functions.createSessionId())
+      .orderBy('userId, 'category, 'sessionId)
   }
 
   def sessionizeByProduct(df: DataFrame)(implicit spark: SparkSession): DataFrame = {
@@ -46,13 +49,13 @@ object WindowFunctionSession {
         lag('product, 1)
           .over(Window.partitionBy('userId, 'category, 'product).orderBy('eventTime))
           .as('prevProduct)
-      ).orderBy('eventTime)
+      )
       .select('userId, 'category, 'product, 'eventTime,
         when('product === 'prevProduct, lit(0)).otherwise(lit(1))
           .as('isNewSession))
       .select('userId, 'category, 'product, 'eventTime,
         sum('isNewSession)
-          .over(Window.partitionBy('userId).orderBy('userId, 'eventTime, 'product))
+          .over(Window.partitionBy('userId, 'product).orderBy('eventTime))
           .as('sessionId)
       )
      .groupBy("userId", "category", "product", "sessionId")
@@ -62,7 +65,7 @@ object WindowFunctionSession {
       )
       .drop('sessionId)
       .withColumn("sessionId", Functions.createSessionId())
-      .orderBy('userId, 'category, 'sessionId)
+//      .orderBy('userId, 'category, 'sessionId)
 
   }
 }

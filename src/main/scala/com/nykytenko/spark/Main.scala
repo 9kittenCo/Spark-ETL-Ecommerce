@@ -3,17 +3,15 @@ package com.nykytenko
 import cats.effect.{Effect, IO}
 import cats.implicits._
 import com.nykytenko.spark.{EtlDescription, ProcessData, Session}
-import org.apache.spark.sql.{Row, SparkSession}
+import org.apache.spark.sql.SparkSession
 
 
 object Main {
-  type Result[T] = Option[T]
   case class EtlResult(value: EtlDescription, session: SparkSession)
 
   def main(args: Array[String]): Unit = {
 
-      //todo as test example output as println to command line
-    val name = args.headOption.getOrElse("_2").toLowerCase.trim
+    val name = args.head.toLowerCase.trim
     program[IO](name).unsafeRunSync()
   }
 
@@ -30,12 +28,7 @@ object Main {
       configuration <- config.load[F]
       session       <- new Session[F].createFromConfig(configuration.spark)
       processData   = new ProcessData(configuration.csv)(session)
-      result = {
-        if (name == "_1") processData.Etls._1
-        else if (name == "_2") processData.Etls._2
-        else if (name == "_3") processData.Etls._3
-        else processData.Etls._1
-      }
+      result        = processData.mapEtl(name)
     } yield EtlResult(result, session)
   }
 }

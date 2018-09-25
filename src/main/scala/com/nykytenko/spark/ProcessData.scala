@@ -2,6 +2,7 @@ package com.nykytenko.spark
 
 import cats.effect.Effect
 import com.nykytenko.config.CsvConfig
+import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.{DataFrame, _}
 import org.apache.spark.sql.functions._
 
@@ -20,11 +21,11 @@ class EtlDescription(
 
 class ProcessData(config: CsvConfig)(implicit sparkSession: SparkSession) {
 
-  object Etls {
-    val _1 = new EtlDescription(sourceDF = extractDF(config), transform = model1(), write = dummyWriter())
-    val _2 = new EtlDescription(sourceDF = extractDF(config), transform = model2(), write = dummyWriter())
-    val _3 = new EtlDescription(sourceDF = extractDF(config), transform = model3(), write = dummyWriter())
-  }
+  val mapEtl: Map[String, EtlDescription] = Map[String, EtlDescription](
+    "_1" -> new EtlDescription(sourceDF = extractDF(config), transform = model1(), write = dummyWriter()),
+            "_2" -> new EtlDescription(sourceDF = extractDF(config), transform = model2(), write = dummyWriter()),
+            "_3" -> new EtlDescription(sourceDF = extractDF(config), transform = model3(), write = dummyWriter())
+  )
 
   def extractDF(config: CsvConfig): DataFrame = sparkSession
     .read
@@ -37,7 +38,6 @@ class ProcessData(config: CsvConfig)(implicit sparkSession: SparkSession) {
     import WindowFunctionSession._
 
     sessionizeByCategory(df, maxSessionDuration = 300)
-
   }
 
   // Median Session duration and Users
@@ -61,7 +61,7 @@ class ProcessData(config: CsvConfig)(implicit sparkSession: SparkSession) {
         val windowSize = sortedWindow.size
         val m = if (windowSize % 2 == 0) (sortedWindow(windowSize / 2) + sortedWindow(windowSize / 2 - 1)) / 2
         else sortedWindow((windowSize + 1) / 2 - 1)
-        (row.getLong(0), row.getLong(1), row.getLong(2), row.getLong(3), m)
+        (row.getString(0), row.getLong(1), row.getLong(2), row.getLong(3), m)
     }
     .toDF("sessionId", "less1", "1to5", "more5", "median")
   }
@@ -70,19 +70,14 @@ class ProcessData(config: CsvConfig)(implicit sparkSession: SparkSession) {
     import sparkSession.implicits._
 
     df
-      .withColumn("timeInSession", unix_timestamp($"sessionEndTime") - unix_timestamp($"sessionStartTime"))
-      .orderBy("userId","timeInSession")
-      .groupBy("category")
-      .agg(
-        collect_set("product").alias("allProducts")
+      .withColumn("timeInSessionByUser", unix_timestamp($"sessionEndTime") - unix_timestamp($"sessionStartTime"))
+      .select('category, 'product,
+        sum('timeInSessionByUser).over(Window.partitionBy('category, 'product).orderBy('timeInSessionByUser.desc)).as("timeInSessionByProduct")
       )
-      .map(row => (
-        row.getAs[String]("category"),
-        row.getAs[mutable.WrappedArray[String]]("allProducts").sorted.take(10))
-      )
-      .toDF("category", "wrapped")
-      .withColumn("product", explode($"wrapped"))
-      .drop("wrapped")
+      .withColumn("rn", row_number().over(Window.partitionBy('category).orderBy('timeInSessionByProduct.desc)))
+      .where('rn <= 2)
+      .drop('rn)
+      .drop('timeInSessionByProduct)
   }
 
   def model1()(df: DataFrame): DataFrame = {
