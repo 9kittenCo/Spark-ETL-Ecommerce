@@ -71,13 +71,11 @@ class ProcessData(config: CsvConfig)(implicit sparkSession: SparkSession) {
 
     df
       .withColumn("timeInSessionByUser", unix_timestamp($"sessionEndTime") - unix_timestamp($"sessionStartTime"))
-      .select('category, 'product,
-        sum('timeInSessionByUser).over(Window.partitionBy('category, 'product).orderBy('timeInSessionByUser.desc)).as("timeInSessionByProduct")
-      )
+      .groupBy('category, 'product)
+      .agg(sum('timeInSessionByUser).as("timeInSessionByProduct"))
       .withColumn("rn", row_number().over(Window.partitionBy('category).orderBy('timeInSessionByProduct.desc)))
-      .where('rn <= 2)
-      .drop('rn)
-      .drop('timeInSessionByProduct)
+      .where('rn <= 10)
+      .drop('rn).drop('timeInSessionByProduct)
   }
 
   def model1()(df: DataFrame): DataFrame = {
